@@ -49,22 +49,24 @@
   tags:
     - skip_ansible_lint  # Suppressing the linter
 
-- name: Declare the address of the first Swarm manager as a fact.
-  set_fact:
-    docker_manager_address: "{{ docker_swarm_addr }}:{{ docker_swarm_port }}"
-  when: "inventory_hostname == groups['docker_swarm_manager'][0]"
 
-- name: Distribute the fact containing address of the first Swarm manager.
-  set_fact:
-    docker_manager_address: "{{ hostvars[groups['docker_swarm_manager'][0]]['docker_manager_address'] }}"
-  when: "inventory_hostname != groups['docker_swarm_manager'][0]"
+- name: Get command for joining workers to the swarm cluster
+  run_once: true
+  become: true
+  delegate_to: "{{ groups['docker_swarm_manager'][0] }}"
+  shell: docker swarm join-token worker | grep "docker swarm join"
+  register: swarm_cluster_join_worker_command_result
+  changed_when: false
 
-- name: Join the pending Swarm worker nodes.
-  shell: docker swarm join
-        --listen-addr {{ docker_swarm_addr }}:{{ docker_swarm_port }}
-        --advertise-addr {{ docker_swarm_addr }}
-        --token "{{ docker_worker_token.stdout }}"
-        {{ docker_manager_address }}
+- name: Store swarm cluster join worker command
+  run_once: true
+  set_fact:
+    swarm_cluster_join_worker_command: "{{ swarm_cluster_join_worker_command_result.stdout }}"
+
+- name: Join nodes as worker
+  run_once: true
+  become: true
+  command: "{{ swarm_cluster_join_worker_command }}"
   changed_when: false
   when: "docker_info.stdout.find('Swarm: active') == -1
     and docker_info.stdout.find('Swarm: pending') == -1
